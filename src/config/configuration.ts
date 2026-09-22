@@ -61,6 +61,18 @@ export const configuration = () => ({
       .replace(/\/+$/, ''),
   },
 
+  /** Фоновое обслуживание доставки: дослать недоставленное и предупредить, если канал лёг */
+  delivery: {
+    /** Как часто дослать заявки и проверять каналы, минут (0 — выключить) */
+    retryMinutes: parseInt(process.env.DELIVERY_RETRY_MINUTES || '10', 10),
+    /** Сколько суток пытаться дослать заявку */
+    retryDays: parseInt(process.env.DELIVERY_RETRY_DAYS || '3', 10),
+    /** Через сколько часов молчания канала слать тревогу */
+    alertHours: parseInt(process.env.DELIVERY_ALERT_HOURS || '12', 10),
+    /** Как часто повторять тревогу, пока канал не починят, часов */
+    alertRepeatHours: parseInt(process.env.DELIVERY_ALERT_REPEAT_HOURS || '24', 10),
+  },
+
   /** Ключ для служебных запросов (список заявок): заголовок X-Admin-Key */
   adminKey: process.env.ADMIN_KEY || '',
 });

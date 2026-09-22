@@ -64,3 +64,14 @@ model LeadFile {
   @@index([leadId])
   @@map("lead_files")
 }
+
+/// Служебное состояние фонового обслуживания: когда канал доставки в последний раз
+/// работал и когда по нему отправляли тревогу. Нужно, чтобы состояние переживало
+/// перезапуск контейнера.
+model ServiceState {
+  key       String   @id
+  value     String?
+  updatedAt DateTime @updatedAt
+
+  @@map("service_state")
+}

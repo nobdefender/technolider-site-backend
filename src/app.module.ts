@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { configuration } from './config/configuration';
+import { DeliveryModule } from './delivery/delivery.module';
 import { HealthModule } from './health/health.module';
 import { LeadsModule } from './leads/leads.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -22,6 +23,7 @@ import { PrismaModule } from './prisma/prisma.module';
     }),
     PrismaModule,
     LeadsModule,
+    DeliveryModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

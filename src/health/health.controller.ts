@@ -2,6 +2,7 @@ import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiExcludeEndpoint, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminGuard } from '../common/admin.guard';
 import { CaptchaService } from '../captcha/captcha.service';
+import { DeliveryService } from '../delivery/delivery.service';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from '../telegram/telegram.service';
@@ -14,6 +15,7 @@ export class HealthController {
     private readonly mail: MailService,
     private readonly telegram: TelegramService,
     private readonly captcha: CaptchaService,
+    private readonly deliveryService: DeliveryService,
   ) {}
 
   /** Публичная проверка живости (для Docker healthcheck и мониторинга) — без подробностей. */
@@ -48,5 +50,13 @@ export class HealthController {
   @UseGuards(AdminGuard)
   async telegramCheck() {
     return { ...(await this.telegram.check()), ...this.telegram.transport, ts: Date.now() };
+  }
+
+  /** Служебное: недоставленные заявки и когда каналы в последний раз работали. */
+  @Get('delivery')
+  @ApiExcludeEndpoint()
+  @UseGuards(AdminGuard)
+  async delivery() {
+    return { ok: true, ts: Date.now(), ...(await this.deliveryService.status()) };
   }
 }

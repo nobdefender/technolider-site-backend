@@ -29,6 +29,38 @@ export class MailService {
     return !!this.config.get<boolean>('mail.enabled') && this.config.get<string[]>('mail.to')!.length > 0;
   }
 
+  /** Служебная проверка связи с SMTP. */
+  async check(): Promise<{ ok: boolean; error?: string }> {
+    if (!this.transporter) return { ok: false, error: 'Отправка почты не настроена' };
+    try {
+      await this.transporter.verify();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Служебное письмо — тревога о канале доставки. Без вложений и без reply-to клиента. */
+  async sendAlert(subject: string, lines: string[]): Promise<void> {
+    if (!this.transporter) throw new Error('Отправка почты не настроена');
+    const esc = (v: string) =>
+      v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    await this.transporter.sendMail({
+      from: this.config.get<string>('mail.from'),
+      to: this.config.get<string[]>('mail.to')!,
+      subject,
+      text: lines.join('\n'),
+      html: `<!doctype html><html lang="ru"><body style="margin:0;background:#f2f2f3;font-family:Arial,Helvetica,sans-serif;color:#1d1f20">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f2f2f3;padding:24px 0"><tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid rgba(29,31,32,.16)">
+  <tr><td style="background:#7a2d2d;color:#f2f2f3;padding:20px 24px;font-size:18px;font-weight:bold">${esc(subject)}</td></tr>
+  <tr><td style="padding:24px;font-size:15px;line-height:1.6">${lines.map((l) => esc(l)).join('<br>')}</td></tr>
+</table></td></tr></table></body></html>`,
+    });
+    this.logger.warn(`Отправлено предупреждение на почту: ${subject}`);
+  }
+
   async send(lead: LeadNotification): Promise<void> {
     if (!this.transporter) throw new Error('Отправка почты не настроена (нет SMTP_HOST или MAIL_TO)');
 

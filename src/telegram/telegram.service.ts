@@ -3,20 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { createReadStream } from 'node:fs';
 import * as path from 'node:path';
 import { fetch as httpFetch, FormData, type Dispatcher } from 'undici';
+import { moscowTime } from '../common/time';
 import type { LeadNotification } from '../leads/lead-notification.interface';
 import { createProxyDispatcher, maskProxy } from './telegram-transport';
-
-const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-
-/** «22 сентября 2026, 15:41 мск». В России нет перехода на летнее время, поэтому просто UTC+3. */
-function moscowTime(date: Date): string {
-  const msk = new Date(date.getTime() + 3 * 60 * 60 * 1000);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return (
-    `${msk.getUTCDate()} ${MONTHS[msk.getUTCMonth()]} ${msk.getUTCFullYear()}, ` +
-    `${pad(msk.getUTCHours())}:${pad(msk.getUTCMinutes())} мск`
-  );
-}
 
 /** «1,4 МБ» / «860 КБ» — как в форме на сайте. */
 function fileSize(bytes: number): string {
@@ -145,6 +134,14 @@ export class TelegramService {
 
     lines.push('', `🔖 Номер заявки в базе: <code>${lead.id}</code>`);
     return lines.join('\n');
+  }
+
+  /** Служебное сообщение в те же чаты — тревога о канале доставки. */
+  async sendNotice(text: string): Promise<void> {
+    if (!this.enabled) throw new Error('Отправка в Telegram не настроена');
+    for (const chatId of this.config.get<string[]>('telegram.chatIds')!) {
+      await this.sendText(chatId, text);
+    }
   }
 
   /** Обычное текстовое сообщение. */
