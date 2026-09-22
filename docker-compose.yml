@@ -1,0 +1,56 @@
+# technolider-site-backend — бэкенд сайта ООО НПП «Технолидер»
+#   1. cp .env.example .env и заполнить (домены, SMTP/Telegram, пароль БД)
+#   2. docker compose up -d --build
+# API слушает 127.0.0.1:4000, наружу — через nginx (deploy/nginx.conf.example).
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: technolider-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-technolider}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: ${POSTGRES_DB:-technolider}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-technolider}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  api:
+    build: .
+    image: technolider-site-backend:latest
+    container_name: technolider-site-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      UPLOADS_DIR: /app/uploads
+    ports:
+      - "127.0.0.1:${API_PORT:-4000}:4000"
+    volumes:
+      - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  db-data:
+  uploads:

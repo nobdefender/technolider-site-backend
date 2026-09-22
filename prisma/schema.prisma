@@ -1,0 +1,66 @@
+// Схема БД. Одна таблица — заявки с сайта и вложенные к ним файлы.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Статус обработки заявки
+enum LeadStatus {
+  NEW /// принята, ещё не обработана
+  SENT /// доставлена (почта и/или Telegram)
+  FAILED /// доставка не удалась — заявка сохранена, её видно в БД
+  SPAM /// отклонена антиспамом
+}
+
+/// Заявка с формы «Контакты»
+model Lead {
+  id        String     @id @default(cuid())
+  createdAt DateTime   @default(now())
+  status    LeadStatus @default(NEW)
+
+  name  String
+  phone String
+  email String?
+  task  String  @db.Text
+
+  /// вложенные файлы (чертежи, ТЗ)
+  files LeadFile[]
+
+  /// служебное: откуда пришла заявка
+  ip        String?
+  userAgent String? @db.Text
+  referer   String?
+  page      String?
+
+  /// доставка
+  mailSentAt     DateTime?
+  telegramSentAt DateTime?
+  deliveryError  String?   @db.Text
+
+  @@index([createdAt])
+  @@index([status])
+  @@map("leads")
+}
+
+/// Файл, приложенный к заявке
+model LeadFile {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  /// имя файла на диске (uploads/<storedName>)
+  storedName   String
+  /// исходное имя, как у пользователя
+  originalName String
+  mimeType     String
+  size         Int
+
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId String
+
+  @@index([leadId])
+  @@map("lead_files")
+}
