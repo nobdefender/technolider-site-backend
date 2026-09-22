@@ -53,6 +53,12 @@ export const configuration = () => ({
       .map((s) => s.trim())
       .filter(Boolean),
     sendFiles: (process.env.TELEGRAM_SEND_FILES || 'true') !== 'false',
+    /** Прокси до Bot API: http(s)://… или socks5://… (в России api.telegram.org заблокирован) */
+    proxyUrl: (process.env.TELEGRAM_PROXY_URL || '').trim(),
+    /** Адрес Bot API: своё зеркало или self-hosted сервер вместо api.telegram.org */
+    apiBase: (process.env.TELEGRAM_API_BASE || 'https://api.telegram.org')
+      .trim()
+      .replace(/\/+$/, ''),
   },
 
   /** Ключ для служебных запросов (список заявок): заголовок X-Admin-Key */

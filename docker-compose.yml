@@ -37,6 +37,10 @@ services:
       NODE_ENV: production
       PORT: 4000
       UPLOADS_DIR: /app/uploads
+    # прокси, поднятый на самом сервере, виден изнутри как host.docker.internal
+    # (TELEGRAM_PROXY_URL=socks5://host.docker.internal:1080)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:${API_PORT:-4000}:4000"
     volumes:

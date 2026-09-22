@@ -34,7 +34,19 @@ export class HealthController {
       db: await this.prisma.isHealthy(),
       mail: this.mail.enabled,
       telegram: this.telegram.enabled,
+      telegramProxy: this.telegram.transport.proxy,
       captcha: this.captcha.enabled,
     };
+  }
+
+  /**
+   * Служебное: связь с Telegram (getMe) через настроенный транспорт.
+   * Нужно, чтобы проверить прокси — с российских адресов Bot API недоступен.
+   */
+  @Get('telegram')
+  @ApiExcludeEndpoint()
+  @UseGuards(AdminGuard)
+  async telegramCheck() {
+    return { ...(await this.telegram.check()), ...this.telegram.transport, ts: Date.now() };
   }
 }

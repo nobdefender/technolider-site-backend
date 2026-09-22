@@ -26,6 +26,7 @@ npm run start:dev               # http://localhost:4000/api
 | `POST` | `/api/leads` | открыт | Отправка заявки (`application/json` или `multipart/form-data` с полем `files`) |
 | `GET` | `/api/health` | открыт | Живость (для Docker healthcheck и мониторинга) |
 | `GET` | `/api/health/details` | админ-ключ | Состояние БД и настроенных каналов |
+| `GET` | `/api/health/telegram` | админ-ключ | Связь с Telegram (getMe) — проверка прокси |
 | `GET` | `/api/leads` | админ-ключ | Список заявок |
 | `GET` | `/api/docs` | админ-ключ | Swagger |
 
@@ -75,8 +76,30 @@ curl -X POST http://localhost:4000/api/leads \
 | `SMARTCAPTCHA_SECRET` | серверный ключ Yandex SmartCaptcha |
 | `SMTP_*`, `MAIL_TO`, `MAIL_FROM` | отправка почты; пусто — отключена |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | отправка в Telegram; пусто — отключена |
+| `TELEGRAM_PROXY_URL` | прокси до Bot API (`socks5://…`, `http://…`) — из России он заблокирован |
+| `TELEGRAM_API_BASE` | адрес Bot API, если вместо прокси используется своё зеркало |
 | `ADMIN_KEY` | ключ ко всем служебным маршрутам (`/api/leads`, `/api/health/details`, `/api/docs`) |
 | `API_PORT` | порт на хосте (по умолчанию 4000, только 127.0.0.1) |
+
+### Telegram с российского сервера
+
+`api.telegram.org` с российских адресов не открывается, поэтому запросы к боту идут
+через прокси: `TELEGRAM_PROXY_URL=socks5://логин:пароль@1.2.3.4:1080` (или `http://…`).
+Пароль со спецсимволами кодируется по-URL (`@` → `%40`). Альтернатива — своё зеркало
+Bot API на зарубежном сервере: `TELEGRAM_API_BASE=https://tg.example.com`.
+
+Через этот же канал уходят вложения, так что прокси должен тянуть файлы до 5 МБ.
+Почта (SMTP) и капча (Yandex Cloud) из России работают напрямую, им прокси не нужен.
+
+Проверка связи:
+
+```bash
+curl -s -H "X-Admin-Key: <ключ>" http://127.0.0.1:4000/api/health/telegram
+# {"ok":true,"bot":"@…","apiBase":"https://api.telegram.org","proxy":"socks5://1.2.3.4:1080"}
+```
+
+Если прокси недоступен, заявка всё равно сохраняется в БД и уходит на почту — текст
+ошибки попадает в поле `deliveryError`.
 
 ## Деплой на сервер (Docker, вручную)
 
