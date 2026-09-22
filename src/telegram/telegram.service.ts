@@ -6,6 +6,25 @@ import { fetch as httpFetch, FormData, type Dispatcher } from 'undici';
 import type { LeadNotification } from '../leads/lead-notification.interface';
 import { createProxyDispatcher, maskProxy } from './telegram-transport';
 
+const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/** «22 сентября 2026, 15:41 мск». В России нет перехода на летнее время, поэтому просто UTC+3. */
+function moscowTime(date: Date): string {
+  const msk = new Date(date.getTime() + 3 * 60 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${msk.getUTCDate()} ${MONTHS[msk.getUTCMonth()]} ${msk.getUTCFullYear()}, ` +
+    `${pad(msk.getUTCHours())}:${pad(msk.getUTCMinutes())} мск`
+  );
+}
+
+/** «1,4 МБ» / «860 КБ» — как в форме на сайте. */
+function fileSize(bytes: number): string {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} МБ`
+    : `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+}
+
 /** Отправка заявок в Telegram. Если токен или чат не заданы — отправка отключена. */
 @Injectable()
 export class TelegramService {
@@ -63,51 +82,129 @@ export class TelegramService {
     if (!this.enabled) throw new Error('Отправка в Telegram не настроена');
 
     const chats = this.config.get<string[]>('telegram.chatIds')!;
-    const esc = (v: string) => v.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!);
-    const phoneDigits = lead.phone.replace(/\D/g, '');
+    const text = this.format(lead);
 
-    const text =
-      `<b>Заявка с сайта</b>\n\n` +
-      `<b>Имя:</b> ${esc(lead.name)}\n` +
-      `<b>Телефон:</b> <a href="tel:+${phoneDigits}">${esc(lead.phone)}</a>\n` +
-      (lead.email ? `<b>Почта:</b> ${esc(lead.email)}\n` : '') +
-      (lead.page ? `<b>Страница:</b> ${esc(lead.page)}\n` : '') +
-      `\n<b>Задача:</b>\n${esc(lead.task)}\n` +
-      (lead.files.length ? `\n<b>Файлы:</b> ${lead.files.length} шт.\n` : '') +
-      `\n<code>№${lead.id}</code>`;
+    const withFiles = !!this.config.get<boolean>('telegram.sendFiles') && lead.files.length > 0;
+    // Telegram разрешает 1024 знака подписи (теги разметки не считаются)
+    const fitsCaption = text.replace(/<[^>]*>/g, '').length <= 1000;
 
     for (const chatId of chats) {
-      const res = await httpFetch(this.api('sendMessage'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-        dispatcher: this.dispatcher,
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) throw new Error(`Telegram sendMessage: ${res.status} ${await res.text()}`);
+      if (!withFiles) {
+        await this.sendText(chatId, text);
+        continue;
+      }
 
-      if (this.config.get<boolean>('telegram.sendFiles') && lead.files.length) {
-        const dir = this.config.get<string>('uploads.dir')!;
-        for (const f of lead.files) {
-          const form = new FormData();
-          form.set('chat_id', chatId);
-          form.set('caption', `${f.originalName} · заявка №${lead.id}`);
-          // Node 22: Blob из потока файла, без загрузки в память целиком
-          const stream = createReadStream(path.join(dir, f.storedName));
-          const chunks: Buffer[] = [];
-          for await (const chunk of stream) chunks.push(chunk as Buffer);
-          form.set('document', new Blob([Buffer.concat(chunks)], { type: f.mimeType }), f.originalName);
-          const r = await httpFetch(this.api('sendDocument'), {
-            method: 'POST',
-            body: form,
-            dispatcher: this.dispatcher,
-            signal: AbortSignal.timeout(30000),
-          });
-          if (!r.ok) this.logger.warn(`Файл ${f.originalName} не отправлен в Telegram: ${r.status}`);
-        }
+      // заявка уходит одним сообщением: файлы с текстом в подписи
+      const caption = fitsCaption ? text : undefined;
+      if (!caption) await this.sendText(chatId, text); // длинная задача в подпись не влезла
+      try {
+        await this.sendFiles(chatId, lead, caption);
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`Файлы к заявке №${lead.id} не отправлены в Telegram: ${reason}`);
+        // текст ушёл бы вместе с файлами — значит, заявку надо продублировать
+        if (caption) await this.sendText(chatId, text);
       }
     }
 
     this.logger.log(`Заявка №${lead.id} отправлена в Telegram (${chats.length} чат(ов))`);
+  }
+
+  /**
+   * Текст заявки для Telegram (HTML-разметка Bot API). Менеджер должен с одного
+   * взгляда понять: кто, когда, что нужно и куда звонить.
+   */
+  private format(lead: LeadNotification): string {
+    const esc = (v: string) => v.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!);
+    const digits = lead.phone.replace(/\D/g, '');
+    const site = this.config.get<string[]>('corsOrigins')?.[0] || '';
+
+    const lines = [
+      '🔔 <b>Новая заявка с сайта</b>',
+      `🕒 ${moscowTime(lead.createdAt)}`,
+      '',
+      `👤 <b>${esc(lead.name)}</b>`,
+      `📞 <a href="tel:+${digits}">${esc(lead.phone)}</a>`,
+    ];
+    // почту пишем текстом: Telegram сам делает её кликабельной, а нестандартную
+    // схему mailto: Bot API может не принять и завернуть всё сообщение
+    if (lead.email) lines.push(`✉️ ${esc(lead.email)}`);
+    if (lead.page) {
+      const page = site
+        ? `<a href="${esc(site + lead.page)}">${esc(lead.page)}</a>`
+        : esc(lead.page);
+      lines.push(`🔗 Страница: ${page}`);
+    }
+
+    lines.push('', '📝 <b>Задача</b>', `<blockquote>${esc(lead.task)}</blockquote>`);
+
+    if (lead.files.length) {
+      lines.push('', `📎 <b>Вложения (${lead.files.length})</b>`);
+      for (const f of lead.files) lines.push(`• ${esc(f.originalName)} · ${fileSize(f.size)}`);
+    }
+
+    lines.push('', `🔖 Номер заявки в базе: <code>${lead.id}</code>`);
+    return lines.join('\n');
+  }
+
+  /** Обычное текстовое сообщение. */
+  private async sendText(chatId: string, text: string): Promise<void> {
+    const res = await httpFetch(this.api('sendMessage'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+      dispatcher: this.dispatcher,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`Telegram sendMessage: ${res.status} ${await res.text()}`);
+  }
+
+  /**
+   * Вложения одним сообщением: один файл — sendDocument, несколько — альбом
+   * sendMediaGroup. Текст заявки идёт подписью, поэтому отдельного сообщения нет.
+   */
+  private async sendFiles(chatId: string, lead: LeadNotification, caption?: string): Promise<void> {
+    const dir = this.config.get<string>('uploads.dir')!;
+    const parts: { blob: Blob; name: string }[] = [];
+    for (const f of lead.files) {
+      // Node 22: Blob из потока файла, без загрузки в память целиком
+      const stream = createReadStream(path.join(dir, f.storedName));
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) chunks.push(chunk as Buffer);
+      parts.push({ blob: new Blob([Buffer.concat(chunks)], { type: f.mimeType }), name: f.originalName });
+    }
+
+    const single = parts.length === 1;
+    const form = new FormData();
+    form.set('chat_id', chatId);
+
+    if (single) {
+      form.set('document', parts[0].blob, parts[0].name);
+      if (caption) {
+        form.set('caption', caption);
+        form.set('parse_mode', 'HTML');
+      }
+    } else {
+      parts.forEach((p, i) => form.set(`file${i}`, p.blob, p.name));
+      form.set(
+        'media',
+        JSON.stringify(
+          parts.map((_, i) => ({
+            type: 'document',
+            media: `attach://file${i}`,
+            // у альбома подпись одна — на первом файле
+            ...(i === 0 && caption ? { caption, parse_mode: 'HTML' } : {}),
+          })),
+        ),
+      );
+    }
+
+    const res = await httpFetch(this.api(single ? 'sendDocument' : 'sendMediaGroup'), {
+      method: 'POST',
+      body: form,
+      dispatcher: this.dispatcher,
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) throw new Error(`Telegram ${single ? 'sendDocument' : 'sendMediaGroup'}: ${res.status} ${await res.text()}`);
   }
 }
