@@ -23,18 +23,14 @@ const ALLOWED = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/zip',
-  'application/x-zip-compressed',
-  'application/x-rar-compressed',
-  'application/vnd.rar',
-  'application/x-7z-compressed',
   'application/octet-stream', // DWG, STEP и прочие CAD-форматы часто приходят так
   'text/plain',
 ]);
 
 /** Расширения вложений — основной фильтр: браузер шлёт CAD-файлы как octet-stream,
- *  поэтому по одному лишь MIME-типу пропустить можно что угодно, включая .exe. */
-const ALLOWED_EXT = /\.(pdf|jpe?g|png|webp|heic|tiff?|docx?|xlsx?|zip|rar|7z|dwg|dxf|step|stp|iges|igs|sldprt|sldasm|txt|csv)$/i;
+ *  поэтому по одному лишь MIME-типу пропустить можно что угодно, включая .exe.
+ *  Архивы (zip, rar, 7z) не принимаем: содержимое архива по расширению не проверить. */
+const ALLOWED_EXT = /\.(pdf|jpe?g|png|webp|heic|tiff?|docx?|xlsx?|dwg|dxf|step|stp|iges|igs|sldprt|sldasm|txt|csv)$/i;
 
 @Module({
   imports: [

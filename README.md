@@ -44,7 +44,7 @@ npm run start:dev               # http://localhost:4000/api
 curl -X POST http://localhost:4000/api/leads \
   -F 'name=Иван Петров' \
   -F 'phone=+7 900 000-00-00' \
-  -F 'email=ivan@example.ru' \
+  -F 'email=ivan@company.ru' \
   -F 'task=Нужно изготовить корпус по чертежу, 10 шт.' \
   -F 'files=@drawing.pdf'          # до 3 файлов по 5 МБ
 ```
@@ -60,8 +60,9 @@ curl -X POST http://localhost:4000/api/leads \
    Заявка считается принятой, если сохранена в БД **или** доставлена хотя бы одним каналом;
    результат и текст ошибки пишутся в поля `status` / `deliveryError`.
 
-Вложения: до 3 файлов по 5 МБ (`UPLOADS_*`), допускаются PDF, изображения, Word/Excel,
-архивы и CAD-форматы (DWG, DXF, STEP и т.п.). Файлы лежат в томе `uploads`.
+Вложения: до 3 файлов по 5 МБ (`UPLOADS_*`), допускаются PDF, изображения, Word/Excel
+и CAD-форматы (DWG, DXF, STEP и т.п.). Архивы (zip, rar, 7z) и всё остальное отклоняются:
+содержимое архива по расширению не проверить. Файлы лежат в томе `uploads`.
 
 ## Переменные окружения
 
@@ -78,6 +79,9 @@ curl -X POST http://localhost:4000/api/leads \
 | `API_PORT` | порт на хосте (по умолчанию 4000, только 127.0.0.1) |
 
 ## Деплой на сервер (Docker, вручную)
+
+Полная инструкция — в [DEPLOY.md](DEPLOY.md) (репозиторий → Docker → nginx рядом
+с сайтом → проверка формы → бэкапы). Ниже — кратко.
 
 ```bash
 sudo mkdir -p /opt/technolider-site-backend && sudo chown $USER:$USER /opt/technolider-site-backend
@@ -101,9 +105,9 @@ location /api/ {
 }
 ```
 
-Тогда фронтенд обращается к API по относительному `/api/leads` — без CORS.
-**Важно:** у фронтенда свой маршрут `/api/lead` (старая заглушка) — при подключении
-бэкенда форму нужно переключить на `/api/leads`, а заглушку удалить.
+Тогда фронтенд обращается к API по относительному `/api/leads` — без CORS
+(`NEXT_PUBLIC_API_URL` на сайте оставляем пустым). Форма сайта уже отправляет заявки
+сюда — отдельно ничего переключать не нужно.
 
 Обновление: `bash deploy/deploy.sh` (git pull → пересборка → миграции → проверка healthcheck).
 
